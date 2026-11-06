@@ -11,8 +11,8 @@
     .type   gcd_u32_asm, @function
     .align  2
 gcd_u32_asm:
-    beq     a0, x0, .Loutput        # a0 is zero: the answer is in a1
-    beq     a1, x0, .Lpa_end        # a1 is zero: a0 already holds it
+    beq     a0, x0, .La_is_0        # a0 is zero: the answer is in a1
+    beq     a1, x0, .Lreturn        # a1 is zero: a0 already holds it
     addi    t0, x0, 0               # count of shared twos, starting here
 
 # if (a%2)==0 && (b%2)==0
@@ -44,7 +44,7 @@ gcd_u32_asm:
 # Check a is even or odd in the first round
 .Lb:
     andi t1, a1, 1
-    bne t1, x0, .Lswap              # if (b&1)!=0 (b is odd)
+    bne t1, x0, .Lb_less            # if (b&1)!=0 (b is odd)
 
 # if (b%2)==0
 .Lb_loop:
@@ -52,23 +52,23 @@ gcd_u32_asm:
     andi    t1, a1, 1
     beq     t1, x0, .Lb_loop
 
-# if a>b, then swap a and b
-.Lswap:
-    bgeu    a1, a0, .Lb_minus_a     # skip the swap while b >= a holds
-    addi    t2, a0, 0               # swap a and b
+.Lb_less:
+    bgeu    a1, a0, .Lb_ge          # skip the swap while b >= a holds
+    sub     t2, a0, a1              # new a = old b; new b = (old a - old b)
     addi    a0, a1, 0
     addi    a1, t2, 0
+    jal     x0, .Lb_loop
 
-# b-=a
-.Lb_minus_a:
-    sub     a1, a1, a0              # a, b are odd, so b is even after b -= a
-    bne     a1, x0, .Lb_loop        # b is not zero yet
+.Lb_ge:
+    sub     a1, a1, a0
+    bne     a1, x0, .Lb_loop
     sll     a0, a0, t0              # put the shared twos back
     jalr    x0, ra, 0
 
-.Loutput:
+# if (a==0)
+.La_is_0:
     addi    a0, a1, 0
 
-.Lpa_end:
+.Lreturn:
     jalr    x0, ra, 0
     .size   gcd_u32_asm, .-gcd_u32_asm
