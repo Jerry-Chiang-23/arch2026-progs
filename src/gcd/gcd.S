@@ -11,7 +11,7 @@
     .type   gcd_u32_asm, @function
     .align  2
 gcd_u32_asm:
-    beq     a0, x0, .Lpa_alt        # a0 is zero: the answer is in a1
+    beq     a0, x0, .Loutput        # a0 is zero: the answer is in a1
     beq     a1, x0, .Lpa_end        # a1 is zero: a0 already holds it
     addi    t0, x0, 0               # count of shared twos, starting here
 
@@ -28,39 +28,45 @@ gcd_u32_asm:
     addi    t0, t0, 1               # one more shared two
     or      t1, a0, a1              # combine a and b
     andi    t1, t1, 1               # keep the parity bit
-    beq     t1, x0, .Lboth_loop  # back to the head of this loop
+    beq     t1, x0, .Lboth_loop     # back to the head of this loop
 
-# if (a%2)==0
+# Check a is even or odd in the first round
 .La:
     andi t1, a0, 1
     bne t1, x0, .Lb
 
-# if ((a/2)%2)==0
+# Check if (a%2)==0
 .La_loop:       
     srli    a0, a0, 1
     andi    t1, a0, 1
-    beq     t1, x0, .La_loop   # a is even now, go work on a again
+    beq     t1, x0, .La_loop        # a is even now, go work on a again
+
+# Check a is even or odd in the first round
+.Lb:
+    andi t1, a1, 1
+    bne t1, x0, .Lswap              # if (b&1)!=0 (b is odd)
 
 # if (b%2)==0
-.Lb:
-    andi    t1, a1, 1
-    bne     t1, x0, .Lpa_order      # if (b&1)!=0 (b is odd)
+.Lb_loop:
     srli    a1, a1, 1
-    jal     x0, .Lb
+    andi    t1, a1, 1
+    beq     t1, x0, .Lb_loop
 
-.Lpa_order:
-    bgeu    a1, a0, .Lpa_step       # skip the swap while b >= a holds
+# if a>b, then swap a and b
+.Lswap:
+    bgeu    a1, a0, .Lb_minus_a     # skip the swap while b >= a holds
     addi    t2, a0, 0               # swap a and b
     addi    a0, a1, 0
     addi    a1, t2, 0
 
-.Lpa_step:
-    sub     a1, a1, a0              # b -= a, and b stays even
-    bne     a1, x0, .Lb        # b is not zero yet
+# b-=a
+.Lb_minus_a:
+    sub     a1, a1, a0              # a, b are odd, so b is even after b -= a
+    bne     a1, x0, .Lb_loop        # b is not zero yet
     sll     a0, a0, t0              # put the shared twos back
     jalr    x0, ra, 0
 
-.Lpa_alt:
+.Loutput:
     addi    a0, a1, 0
 
 .Lpa_end:
