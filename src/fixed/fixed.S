@@ -16,8 +16,16 @@
     .align  2
 
 op1_asm:
-    sw      zero, 0(a2)
-    li      a0, 0
+    li      t0, 0               # The value of *n
+    beq     a1, x0, .Lop1_ret
+.Lop1_loop:
+    and     t1, a0, a1          # a & b
+    xor     a0, a0, a1          # a = a ^ b
+    slli    a1, t1, 1           # (a&b) << 1
+    addi    t0, t0, 1
+    bnez    a1, .Lop1_loop
+.Lop1_ret:
+    sw      t0, 0(a2)
     ret
     .size   op1_asm, .-op1_asm
 
