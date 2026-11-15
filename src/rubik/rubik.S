@@ -224,6 +224,10 @@ survive:                        # the child passed the bound; t5 = its turn
     add  a1, s11, s2
     sb   a0, 0(a1)
     beqz a2, found
+    li   a0, 5
+    beq  a5, a0, .Lfrontier     # the child sits 5 moves above the bound
+.Lpush:
+    sh   t0, 0(s1)              # push: save this node's registers, descend
     sh   t0, 0(s1)              # push: save this node's registers, descend
     sh   t1, 2(s1)
     sh   t2, 4(s1)
@@ -253,10 +257,31 @@ next_face:
     sub  a5, s0, s2
     addi a5, a5, -1
     jal  ra, sel_tables
-    beqz t5, turn1              # carry on with the parent's next turn
+.Lresume:                       # carry on with the next turn of face t4
+    beqz t5, turn1
     li   a0, 1
     beq  t5, a0, turn2
     j    next_face
+
+# ---- frontier check: a child at depth bound - 5 is at least 5 moves from
+# solved, so it can lead to a solution only at distance exactly 5. Look up
+# its orientation rank t3 in the group of its permutation rank t2 in the
+# distance-5 table; if it is missing, prune it like a failed bound test.
+.Lfrontier:
+    la   a0, d5_start
+    slli a1, t2, 1
+    add  a0, a0, a1
+    lhu  a1, 0(a0)              # byte offset of group t2 in d5_orient
+    lhu  a2, 2(a0)              # byte offset of the next group
+    la   a0, d5_orient
+    add  a1, a0, a1
+    add  a2, a0, a2
+.Lscan:
+    bgeu a1, a2, .Lresume       # not at distance 5: prune
+    lhu  a3, 0(a1)
+    addi a1, a1, 2
+    bne  a3, t3, .Lscan
+    j    .Lpush                 # distance 5: descend
 
 sel_tables:                     # a6/a7 = the transition tables of face t4
     mv   a6, s3
