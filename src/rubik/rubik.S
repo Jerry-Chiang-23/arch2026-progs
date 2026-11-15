@@ -72,9 +72,91 @@ check_o:                         # characters 7..13 must be '1'..'3'
     srl  t5, t5, t3
     andi t5, t5, 1
     beqz t5, invalid
-    
-    # STEP 1a: valid states are not handled yet
-    li   a0, -1
+
+# Permutation rank (Lehmer code, Horner form): a0 = a0 * (7 - i) + smaller_i.
+# Multiplying by k is k repeated additions; this runs once per input.
+    mv   t0, s0
+    li   a0, 0
+    li   t4, 7                   # t4 = 7 - i = number of characters from i on
+rank_p_loop:
+    mv   t5, a0                  # a0 = a0 * t4
+    li   a0, 0
+    mv   t6, t4
+mul_loop:
+    add  a0, a0, t5
+    addi t6, t6, -1
+    bnez t6, mul_loop
+    lbu  t1, 0(t0)               # value at position i
+    li   t3, 0                   # smaller
+    addi a2, t0, 1
+    add  a3, t0, t4              # one past position 6
+count_loop:
+    bgeu a2, a3, count_done
+    lbu  a4, 0(a2)
+    sltu a5, a4, t1
+    add  t3, t3, a5
+    addi a2, a2, 1
+    j    count_loop
+count_done:
+    add  a0, a0, t3
+    addi t0, t0, 1
+    addi t4, t4, -1
+    bnez t4, rank_p_loop
+
+# Orientation rank: base 3 over the first six orientation digits.
+    mv   t0, s0
+    addi t0, t0, 7
+    li   a1, 0
+    li   t4, 6
+rank_o_loop:
+    lbu  t1, 0(t0)
+    addi t1, t1, -49
+    slli t5, a1, 1
+    add  a1, a1, t5              # a1 * 3
+    add  a1, a1, t1
+    addi t0, t0, 1
+    addi t4, t4, -1
+    bnez t4, rank_o_loop
+
+# ---------------------------------------------------------------------------
+# Table bases, kept in saved registers for the whole search.
+# ---------------------------------------------------------------------------
+    la   s3, tp0
+    la   s4, tp1
+    la   s5, tp2
+    la   s6, to0
+    la   s7, to1
+    la   s8, to2
+    la   s9, pdb_p
+    la   s10, pdb_o
+    la   s11, path
+    la   s1, frames              # keep the root ranks in frames[0]; every bound restarts from them
+    sh   a0, 0(s1)
+    sh   a1, 2(s1)
+
+# h(root) = max(pdb_p[p], pdb_o[o])
+    add  t0, s9, a0
+    lbu  t0, 0(t0)
+    add  t1, s10, a1
+    lbu  t1, 0(t1)
+    bgeu t0, t1, 1f
+    mv   t0, t1
+1:
+    li   s2, 0                   # s2 = solution length
+    beqz t0, .Lwrite             # h = 0: already solved
+    li   a0, -1                  # the search is not in place: report other states as errors
+    j    .Lreturn
+
+# ---- output: the empty answer of the solved cube; -2 if cap is 0 ----
+.Lwrite:
+    lw   t0, 4(sp)               # cap
+    beqz t0, .Lshort             # no room even for the NUL
+    lw   t1, 8(sp)               # out
+    sb   zero, 0(t1)
+    li   a0, 0
+    j    .Lreturn
+.Lshort:
+    li   a0, -2
     j    .Lreturn
 
 invalid:
@@ -97,3 +179,9 @@ invalid:
     addi sp, sp, 64
     ret
     .size   rubik_solve_asm, .-rubik_solve_asm
+
+# ---- search state (Assignment 1 lines 10-19, without the input string) ----
+    .bss
+    .balign 4
+frames: .zero 192                # 12 frames x 16 bytes, see the layout in Assignment 1
+path:   .zero 16                 # path[g] = (face << 2) | turn
