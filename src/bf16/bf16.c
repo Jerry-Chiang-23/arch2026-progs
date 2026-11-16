@@ -81,6 +81,51 @@ uint16_t bf16_mul(uint16_t a, uint16_t b)
 
 uint16_t bf16_sqrt(uint16_t a)
 {
-    (void) a;
-    return 0;
+    uint16_t sign = (a >> 15) & 1;
+    int16_t exp = (a >> 7) & 0xFF;
+    uint16_t mant = a & 0x7F;
+
+    // Special Case
+    if (exp == 0xFF && mant != 0)  // NaN: return unchanged
+        return a;
+    if (sign == 0 && exp == 0xFF &&
+        mant == 0)  // +Inf: return unchanged (0x7F80)
+        return a;
+    if (sign == 1 &&
+        (a & 0x7FFF) !=
+            0)  // Negative nonzero values, including -Inf: quiet NaN
+        return 0x7FC0;
+    if (exp == 0)  // +0, -0 and positive denormals: +0
+        return 0x0000;
+
+    // Normal Case
+    int32_t e = exp - BF16_EXP_BIAS;
+    uint32_t m = 0x80 | mant;
+    int32_t new_exp;
+    if (e & 1) {
+        m <<= 1;
+        new_exp = ((e - 1) >> 1) + BF16_EXP_BIAS;
+    } else {
+        new_exp = (e >> 1) + BF16_EXP_BIAS;
+    }
+
+    uint32_t low = 90, high = 256, result = 128;
+
+    while (low <= high) {
+        uint32_t mid = (low + high) >> 1;
+        uint32_t sq = (mid * mid) / 128;
+        if (sq <= m) {
+            result = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    if (new_exp >= 0xFF)  // +Inf
+        return 0x7F80;
+    else if (new_exp <= 0)  // +0
+        return 0x0000;
+    else {
+        return ((new_exp << 7) & 0x7F80) | (result & 0x007F);
+    }
 }
