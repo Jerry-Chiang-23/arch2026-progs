@@ -33,15 +33,117 @@ bf16_from_f32_asm:
     .type   bf16_mul_asm, @function
     .align  2
 
+# a0 = a, a1 = b (kept until a result is chosen), t0 = sign << 15
+# t1, t2 = exponent and fraction of a; t3, t4 = those of b; t5 = product
 bf16_mul_asm:
-    li      a0, 0
+    xor     t0, a0, a1
+    srli    t0, t0, 15
+    slli    t0, t0, 15              # sign of the result, in place
+    srli    t1, a0, 7
+    andi    t1, t1, 0xFF
+    andi    t2, a0, 0x7F
+    srli    t3, a1, 7
+    andi    t3, t3, 0xFF
+    andi    t4, a1, 0x7F
+    li      a7, 0xFF
+
+    bne     t1, a7, .Lmul_a_finite
+    bnez    t2, .Lmul_ret_a         # a is NaN
+    slli    t5, a1, 17
+    beqz    t5, .Lmul_ret_nan       # Inf * 0
+    j       .Lmul_ret_inf
+
+.Lmul_a_finite:
+    bne     t3, a7, .Lmul_b_finite
+    bnez    t4, .Lmul_ret_b         # b is NaN
+    slli    t5, a0, 17
+    beqz    t5, .Lmul_ret_nan       # 0 * Inf
+    j       .Lmul_ret_inf
+.Lmul_b_finite:
+    slli    t5, a0, 17
+    beqz    t5, .Lmul_ret_zero      # a is zero
+    slli    t5, a1, 17
+    beqz    t5, .Lmul_ret_zero      # b is zero
+
+    bnez    t1, .Lmul_a_normal
+    li      t1, 1                   # subnormal a: exponent 1, minus one per shift
+.Lmul_a_shift:
+    slli    t2, t2, 1
+    addi    t1, t1, -1
+    andi    t5, t2, 0x80
+    beqz    t5, .Lmul_a_shift
+    j       .Lmul_a_done
+.Lmul_a_normal:
+    ori     t2, t2, 0x80
+.Lmul_a_done:
+
+    bnez    t3, .Lmul_b_normal
+    li      t3, 1                   # subnormal b
+.Lmul_b_shift:
+    slli    t4, t4, 1
+    addi    t3, t3, -1
+    andi    t5, t4, 0x80
+    beqz    t5, .Lmul_b_shift
+    j       .Lmul_b_done
+.Lmul_b_normal:
+    ori     t4, t4, 0x80
+.Lmul_b_done:
+    slli    t5, t2, 7               # p = sig_a << 7
+    andi    t4, t4, 0x7F            # multiplier = fraction of b
+    beqz    t4, .Lmul_prod_done
+
+.Lmul_loop:                         # p += sig_a * fraction of b
+    andi    t6, t4, 1
+    beqz    t6, .Lmul_skip
+    add     t5, t5, t2
+.Lmul_skip:
+    slli    t2, t2, 1
+    srli    t4, t4, 1
+    bnez    t4, .Lmul_loop
+.Lmul_prod_done:
+    add     t1, t1, t3
+    addi    t1, t1, -127            # remove one bias
+    srli    t6, t5, 15              # 1 if the product reached 2.0
+    addi    a2, t6, 7
+    srl     t5, t5, a2              # shift by 7 or 8
+    add     t1, t1, t6
+    andi    t5, t5, 0x7F
+
+    bge     t1, a7, .Lmul_ret_inf   # exponent >= 255
+    blez    t1, .Lmul_subnormal     # exponent <= 0
+    slli    t1, t1, 7
+    or      a0, t0, t1
+    or      a0, a0, t5
+    ret
+
+.Lmul_subnormal:
+    li      t6, -6
+    blt     t1, t6, .Lmul_ret_zero  # exponent < -6
+    li      t6, 1
+    sub     t6, t6, t1              # shift by 1 - exponent
+    srl     t5, t5, t6
+    or      a0, t0, t5
+    ret
+
+.Lmul_ret_a:
+    ret
+.Lmul_ret_b:
+    mv      a0, a1                  # return b
+    ret
+.Lmul_ret_nan:
+    li      a0, 0x7FC0
+    ret
+.Lmul_ret_inf:
+    li      t6, 0x7F80
+    or      a0, t0, t6
+    ret
+.Lmul_ret_zero:
+    mv      a0, t0                  # signed zero
     ret
     .size   bf16_mul_asm, .-bf16_mul_asm
-
     .globl  bf16_sqrt_asm
     .type   bf16_sqrt_asm, @function
     .align  2
-
 
 # t0 = sign, t1 = exponent, t2 = fraction; a0 is kept as the input
 bf16_sqrt_asm:
